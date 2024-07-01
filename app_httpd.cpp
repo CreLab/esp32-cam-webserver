@@ -27,6 +27,7 @@
 #include "src/favicons.h"
 #include "src/logo.h"
 #include "storage.h"
+#include "access.h"
 
 // Functions from the main .ino
 extern void flashLED(int flashtime);
@@ -66,6 +67,9 @@ extern bool otaEnabled;
 extern char otaPassword[];
 extern unsigned long xclk;
 extern int sensorPID;
+
+extern char access_ssid[];
+extern char access_password[];
 
 typedef struct {
         httpd_req_t *req;
@@ -406,6 +410,17 @@ static esp_err_t cmd_handler(httpd_req_t *req){
             setLamp(lampVal);
         }
     }
+    else if(!strcmp(variable, "ssid")) {
+        Serial.println("set ssid");
+        strncpy(access_ssid, value, sizeof(value));
+    }
+    else if(!strcmp(variable, "password")) {
+        Serial.println("set password");
+        strncpy(access_password, value, sizeof(value));
+    }
+    else if(!strcmp(variable, "save_access")) {
+        if (filesystem) saveAccess(SPIFFS);
+    }
     else if(!strcmp(variable, "save_prefs")) {
         if (filesystem) savePrefs(SPIFFS);
     }
@@ -735,6 +750,12 @@ static esp_err_t index_handler(httpd_req_t *req){
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Content-Encoding", "identity");
         return httpd_resp_send(req, (const char *)s.c_str(), s.length());
+    } else if(strncmp(view,"access", sizeof(view)) == 0) {
+        Serial.println("Access setup page requested");
+        if (critERR.length() > 0) return error_handler(req);
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Content-Encoding", "identity");
+        return httpd_resp_send(req, (const char *)index_access_html, index_access_html_len);
     } else  {
         Serial.print("Unknown page requested: ");
         Serial.println(view);

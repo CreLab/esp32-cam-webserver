@@ -1,4 +1,189 @@
 /*
+ * accessviewer
+ */
+
+const uint8_t index_access_html[] = R"=====(<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>ESP32 Access Setup</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="stylesheet" type="text/css" href="/style.css">
+    <style>
+      @media (min-width: 800px) and (orientation:landscape) {
+        #content {
+          display:flex;
+          flex-wrap: nowrap;
+          align-items: stretch
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <section class="main">
+      <div id="logo">
+        <label for="nav-toggle-cb" id="nav-toggle" style="float:left;">&#9776;&nbsp;&nbsp;Settings&nbsp;&nbsp;&nbsp;&nbsp;</label>
+        <div id="wait-settings" style="float:left;" class="loader" title="Waiting for camera settings to load"></div>
+      </div>
+      <div id="content">
+        <div class="hidden" id="sidebar">
+          <input type="checkbox" id="nav-toggle-cb" checked="checked">
+            <nav id="menu">
+              <div class="input-group" id="ssid-group">
+                <label for="ssid">SSID</label>
+                <input type="text" id="ssid" name="ssid" class="default-action">
+              </div>
+              <div class="input-group" id="password-group">
+                <label for="password">Password</label>
+                <input type="text" id="password" name="password" class="default-action">
+              </div>
+              <div class="input-group" id="preferences-group">
+                <label for="config" style="line-height: 2em;">Config</label>
+                <button id="reboot" title="Reboot the camera module">Reboot</button>
+                <button id="save_access" title="Save new access config on camera module">Save</button>
+              </div>
+            </nav>
+        </div>
+      </div>
+    </section>
+  </body>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', function (event) {
+    var baseHost = document.location.origin;
+    var streamURL = 'Undefined';
+    var viewerURL = 'Undefined';
+
+    const header = document.getElementById('logo')
+    const settings = document.getElementById('sidebar')
+    const waitSettings = document.getElementById('wait-settings')
+
+    const ssid = document.getElementById('ssid')
+    const password = document.getElementById('password')
+
+    const saveAccessButton = document.getElementById('save_access')
+    const rebootButton = document.getElementById('reboot')
+
+    const hide = el => {
+      el.classList.add('hidden')
+    }
+    const show = el => {
+      el.classList.remove('hidden')
+    }
+
+    const disable = el => {
+      el.classList.add('disabled')
+      el.disabled = true
+    }
+
+    const enable = el => {
+      el.classList.remove('disabled')
+      el.disabled = false
+    }
+
+    const updateValue = (el, value, updateRemote) => {
+      updateRemote = updateRemote == null ? true : updateRemote
+      let initialValue
+      if (el.type === 'checkbox') {
+        initialValue = el.checked
+        value = !!value
+        el.checked = value
+      } else {
+        initialValue = el.value
+        el.value = value
+      }
+
+      if (updateRemote && initialValue !== value) {
+        updateConfig(el);
+      }
+    }
+
+    function updateConfig (el) {
+      let value
+      switch (el.type) {
+        case 'checkbox':
+          value = el.checked ? 1 : 0
+          break
+        case 'range':
+        case 'number':
+        case 'select-one':
+        case 'text':
+          value = el.value
+          break
+        case 'button':
+        case 'submit':
+          value = '1'
+          break
+        default:
+          return
+      }
+
+      const query = `${baseHost}/control?var=${el.id}&val=${value}`
+
+      fetch(query)
+        .then(response => {
+          console.log(`request to ${query} finished, status: ${response.status}`)
+        })
+    }
+
+    document
+      .querySelectorAll('.close')
+      .forEach(el => {
+        el.onclick = () => {
+          hide(el.parentNode)
+        }
+      })
+
+    // read initial values
+    fetch(`${baseHost}/status`)
+      .then(function (response) {
+        return response.json()
+      })
+      .then(function (state) {
+        document
+          .querySelectorAll('.default-action')
+          .forEach(el => {
+            updateValue(el, state[el.id], false)
+          })
+        hide(waitSettings);
+        show(settings);
+      })
+
+    // Attach default on change action
+    document
+      .querySelectorAll('.default-action')
+      .forEach(el => {
+        el.onchange = () => updateConfig(el)
+      })
+
+    saveAccessButton.onclick = () => {
+      if (confirm("Save the access config?")) {
+        updateConfig(saveAccessButton);
+      }
+    }
+
+    rebootButton.onclick = () => {
+      if (confirm("Reboot the Camera Module?")) {
+        updateConfig(rebootButton);
+        // Some sort of countdown here?
+        hide(settings);
+        header.innerHTML = '<h1>Rebooting!</h1><hr>Page will reload after 30 seconds.';
+        setTimeout(function() {
+          location.replace(document.URL);
+        }, 30000);
+      }
+    }
+
+  })
+  </script>
+</html>)=====";
+
+size_t index_access_html_len = sizeof(index_access_html)-1;
+
+/*
  * simpleviewer and streamviewer
  */
 
@@ -483,6 +668,8 @@ const std::string portal_html = R"=====(<!doctype html>
       <button>Full Viewer</button></a>
       <a href="<STREAMURL>view" title="Click here for the dedicated stream viewer" style="text-decoration: none;" target="_blank">
       <button>Stream Viewer</button></a>
+      <a href="<APPURL>?view=access" title="Click here for access setup" style="text-decoration: none;" target="_blank">
+      <button>Access Setup</button></a>
     </div>
     <hr>
     <a href="<APPURL>dump" title="Information dump page" target="_blank">Camera Details</a><br>

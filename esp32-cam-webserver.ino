@@ -8,6 +8,7 @@
 #include "src/parsebytes.h"
 #include "time.h"
 #include <ESPmDNS.h>
+#include "access.h"
 
 
 /* This sketch is a extension/expansion/reork of the 'official' ESP32 Camera example
@@ -36,17 +37,24 @@
  *
  */
 
-// Primary config, or defaults.
-#if __has_include("myconfig.h")
-    struct station { const char ssid[65]; const char password[65]; const bool dhcp;};  // do no edit
-    #include "myconfig.h"
-#else
-    #warning "Using Defaults: Copy myconfig.sample.h to myconfig.h and edit that to use your own settings"
-    #define WIFI_AP_ENABLE
-    #define CAMERA_MODEL_AI_THINKER
-    struct station { const char ssid[65]; const char password[65]; const bool dhcp;}
-    stationList[] = {{"ESP32-CAM-CONNECT","InsecurePassword", true}};
-#endif
+#warning "Using Defaults: Copy myconfig.sample.h to myconfig.h and edit that to use your own settings"
+#define WIFI_AP_ENABLE
+#define WIFI_AP_SSID "ESP32-CAM-CONNECT"
+#define WIFI_AP_PW "InsecurePassword"
+#define CAMERA_MODEL_AI_THINKER
+#define CAM_NAME "ESP32 camera server"
+#define MDNS_NAME "esp32-cam"
+#define HTTP_PORT 80
+#define STREAM_PORT 81
+#define XCLK_FREQ_MHZ 8
+#define CAM_ROTATION 0
+#define MIN_FRAME_TIME 0
+#define WIFI_WATCHDOG 15000
+
+//#define DEFAULT_INDEX_FULL
+
+struct station { char ssid[65]; char password[65]; bool dhcp;};
+struct station stationList[] = {{"SSID","Password", true}};
 
 // Upstream version string
 #include "src/version.h"
@@ -66,6 +74,9 @@ int sketchSize;
 int sketchSpace;
 String sketchMD5;
 
+char access_ssid[32] = {0, };
+char access_password[32] = {0, };
+
 // Start with accesspoint mode disabled, wifi setup will activate it if
 // no known networks are found, and WIFI_AP_ENABLE has been defined
 bool accesspoint = false;
@@ -79,45 +90,14 @@ IPAddress gw;
 extern void startCameraServer(int hPort, int sPort);
 extern void serialDump();
 
-// Names for the Camera. (set these in myconfig.h)
-#if defined(CAM_NAME)
-    char myName[] = CAM_NAME;
-#else
-    char myName[] = "ESP32 camera server";
-#endif
-
-#if defined(MDNS_NAME)
-    char mdnsName[] = MDNS_NAME;
-#else
-    char mdnsName[] = "esp32-cam";
-#endif
-
-// Ports for http and stream (override in myconfig.h)
-#if defined(HTTP_PORT)
-    int httpPort = HTTP_PORT;
-#else
-    int httpPort = 80;
-#endif
-
-#if defined(STREAM_PORT)
-    int streamPort = STREAM_PORT;
-#else
-    int streamPort = 81;
-#endif
-
-#if !defined(WIFI_WATCHDOG)
-    #define WIFI_WATCHDOG 15000
-#endif
+char myName[] = CAM_NAME;
+char mdnsName[] = MDNS_NAME;
+int httpPort = HTTP_PORT;
+int streamPort = STREAM_PORT;
 
 // Number of known networks in stationList[]
 int stationCount = sizeof(stationList)/sizeof(stationList[0]);
-
-// If we have AP mode enabled, ignore first entry in the stationList[]
-#if defined(WIFI_AP_ENABLE)
-    int firstStation = 1;
-#else
-    int firstStation = 0;
-#endif
+int firstStation = 0;
 
 // Select between full and simple index as the default.
 #if defined(DEFAULT_INDEX_FULL)
@@ -151,23 +131,11 @@ int sensorPID;
 // Camera module bus communications frequency.
 // Originally: config.xclk_freq_mhz = 20000000, but this lead to visual artifacts on many modules.
 // See https://github.com/espressif/esp32-camera/issues/150#issuecomment-726473652 et al.
-#if !defined (XCLK_FREQ_MHZ)
-    unsigned long xclk = 8;
-#else
-    unsigned long xclk = XCLK_FREQ_MHZ;
-#endif
+unsigned long xclk = XCLK_FREQ_MHZ;
 
-// initial rotation
-// can be set in myconfig.h
-#if !defined(CAM_ROTATION)
-    #define CAM_ROTATION 0
-#endif
 int myRotation = CAM_ROTATION;
 
 // minimal frame duration in ms, effectively 1/maxFPS
-#if !defined(MIN_FRAME_TIME)
-    #define MIN_FRAME_TIME 0
-#endif
 int minFrameTime = MIN_FRAME_TIME;
 
 // Illumination LAMP and status LED
@@ -406,39 +374,6 @@ void StartCamera() {
         #if defined(DEFAULT_RESOLUTION)
             s->set_framesize(s, DEFAULT_RESOLUTION);
         #endif
-
-        /*
-        * Add any other defaults you want to apply at startup here:
-        * uncomment the line and set the value as desired (see the comments)
-        *
-        * these are defined in the esp headers here:
-        * https://github.com/espressif/esp32-camera/blob/master/driver/include/sensor.h#L149
-        */
-
-        //s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
-        //s->set_quality(s, val);       // 10 to 63
-        //s->set_brightness(s, 0);      // -2 to 2
-        //s->set_contrast(s, 0);        // -2 to 2
-        //s->set_saturation(s, 0);      // -2 to 2
-        //s->set_special_effect(s, 0);  // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
-        //s->set_whitebal(s, 1);        // aka 'awb' in the UI; 0 = disable , 1 = enable
-        //s->set_awb_gain(s, 1);        // 0 = disable , 1 = enable
-        //s->set_wb_mode(s, 0);         // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
-        //s->set_exposure_ctrl(s, 1);   // 0 = disable , 1 = enable
-        //s->set_aec2(s, 0);            // 0 = disable , 1 = enable
-        //s->set_ae_level(s, 0);        // -2 to 2
-        //s->set_aec_value(s, 300);     // 0 to 1200
-        //s->set_gain_ctrl(s, 1);       // 0 = disable , 1 = enable
-        //s->set_agc_gain(s, 0);        // 0 to 30
-        //s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6
-        //s->set_bpc(s, 0);             // 0 = disable , 1 = enable
-        //s->set_wpc(s, 1);             // 0 = disable , 1 = enable
-        //s->set_raw_gma(s, 1);         // 0 = disable , 1 = enable
-        //s->set_lenc(s, 1);            // 0 = disable , 1 = enable
-        //s->set_hmirror(s, 0);         // 0 = disable , 1 = enable
-        //s->set_vflip(s, 0);           // 0 = disable , 1 = enable
-        //s->set_dcw(s, 1);             // 0 = disable , 1 = enable
-        //s->set_colorbar(s, 0);        // 0 = disable , 1 = enable
     }
     // We now have camera with default init
 }
@@ -470,6 +405,10 @@ void WifiSetup() {
     char bestSSID[65] = "";
     uint8_t bestBSSID[6];
     if (stationCount > firstStation) {
+        WiFi.mode(WIFI_STA);
+        WiFi.disconnect();
+        delay(100);
+
         // We have a list to scan
         Serial.printf("Scanning local Wifi Networks\r\n");
         int stationsFound = WiFi.scanNetworks();
@@ -580,6 +519,20 @@ void WifiSetup() {
     }
 
     if (accesspoint && (WiFi.status() != WL_CONNECTED)) {
+        WiFi.mode(WIFI_AP);
+        WiFi.disconnect();
+        delay(100);
+
+        removeAccess(SPIFFS);
+
+        #ifdef WIFI_AP_SSID
+            strncpy(stationList[0].ssid, WIFI_AP_SSID, sizeof(WIFI_AP_SSID));
+        #endif
+
+        #ifdef WIFI_AP_PW
+            strncpy(stationList[0].password, WIFI_AP_PW, sizeof(WIFI_AP_PW));
+        #endif
+
         // The accesspoint has been enabled, and we have not connected to any existing networks
         #if defined(AP_CHAN)
             Serial.println("Setting up Fixed Channel AccessPoint");
@@ -676,6 +629,12 @@ void setup() {
     if (filesystem) {
         delay(200); // a short delay to let spi bus settle after camera init
         loadPrefs(SPIFFS);
+        
+        if(!loadAccess(SPIFFS))
+        {
+            strncpy(stationList[0].ssid, access_ssid, sizeof(access_ssid));
+            strncpy(stationList[0].password, access_password, sizeof(access_password));
+        }
     } else {
         Serial.println("No Internal Filesystem, cannot load or save preferences");
     }

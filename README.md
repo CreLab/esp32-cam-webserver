@@ -3,6 +3,14 @@
 ## Taken from the ESP examples, and expanded
 This sketch is a extension/expansion/rework of the 'official' ESP32 Camera example sketch from Espressif:
 
+## Wifi Config Extension by CreLab
+
+This project was forked by easytarget/esp32-cam-webserver and extended with a Wifi setup. This extension makes it possible to enter and use the access data for a Wifi connection in an AP mode.
+
+If the camera does not find a known wifi network, it is configured as an access point with the name "ESP32-CAM-CONNECT". In this mode, the Wi-Fi connection can be configured via the "Access Setup" in the portal.
+
+To do this, enter the SSID / password and click save. After a reboot, a connection to the respective Wifi is established.
+
 https://github.com/espressif/arduino-esp32/tree/master/libraries/ESP32/examples/Camera/CameraWebServer
 
 But expanded with:
